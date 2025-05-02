@@ -1,0 +1,6 @@
+{
+    "database_path": "data/employee_tracker.db",
+    "app_name": "Employee Time Tracker",
+    "refresh_interval": 30,
+    "auto_logout": 60
+}
