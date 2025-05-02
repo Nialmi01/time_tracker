@@ -126,9 +126,16 @@ class AdminView(QMainWindow):
         self.to_date.setDate(QDate.currentDate())
         report_filter_layout.addWidget(self.to_date)
         
+        # En views/admin_view.py - modificar la sección de controles de filtrado para reportes
         self.generate_report_button = QPushButton("Generar Reporte")
         self.generate_report_button.clicked.connect(self.generate_report)
         report_filter_layout.addWidget(self.generate_report_button)
+
+        # Agregar nuevo botón para exportar a Excel
+        self.export_excel_button = QPushButton("Exportar a Excel")
+        self.export_excel_button.clicked.connect(self.export_to_excel)
+        self.export_excel_button.setEnabled(False)  # Inicialmente deshabilitado hasta que haya datos
+        report_filter_layout.addWidget(self.export_excel_button)
         
         reports_layout.addWidget(report_filter_frame)
         
@@ -237,41 +244,47 @@ class AdminView(QMainWindow):
         user_id = self.report_user_filter.currentData()
         from_date = self.from_date.date().toString("yyyy-MM-dd")
         to_date = self.to_date.date().toString("yyyy-MM-dd")
-        
+
         # Obtener datos de reporte
         report_data = self.admin_controller.get_historical_report(user_id, from_date, to_date)
-        
+
         # Actualizar tabla
         self.reports_table.setRowCount(len(report_data))
-        
+
         for row, record in enumerate(report_data):
             # Usuario
             self.reports_table.setItem(row, 0, QTableWidgetItem(record['username']))
-            
+
             # Fecha
             self.reports_table.setItem(row, 1, QTableWidgetItem(record['date']))
-            
+
             # Hora de inicio
             if record['login_time']:
                 login_time = datetime.datetime.fromisoformat(record['login_time'])
                 self.reports_table.setItem(row, 2, QTableWidgetItem(login_time.strftime('%H:%M:%S')))
             else:
                 self.reports_table.setItem(row, 2, QTableWidgetItem("--"))
-            
+
             # Hora de fin
             if record['logout_time']:
                 logout_time = datetime.datetime.fromisoformat(record['logout_time'])
                 self.reports_table.setItem(row, 3, QTableWidgetItem(logout_time.strftime('%H:%M:%S')))
             else:
                 self.reports_table.setItem(row, 3, QTableWidgetItem("Activo"))
-            
+
             # Tiempos de actividades
             self.reports_table.setItem(row, 4, QTableWidgetItem(self.format_seconds(record['total_work_time'])))
             self.reports_table.setItem(row, 5, QTableWidgetItem(self.format_seconds(record['total_break_time'])))
             self.reports_table.setItem(row, 6, QTableWidgetItem(self.format_seconds(record['total_lunch_time'])))
             self.reports_table.setItem(row, 7, QTableWidgetItem(self.format_seconds(record['total_bathroom_time'])))
             self.reports_table.setItem(row, 8, QTableWidgetItem(self.format_seconds(record['total_meeting_time'])))
-    
+
+        # Habilitar o deshabilitar el botón de exportar
+        self.export_excel_button.setEnabled(len(report_data) > 0)
+
+        # Almacenar los datos del reporte para exportar
+        self.current_report_data = report_data
+        
     def load_users_table(self):
         """Carga la tabla de usuarios"""
         users = self.admin_controller.get_all_users()
@@ -572,94 +585,197 @@ class AdminView(QMainWindow):
 
         dialog.exec_()
 
-def import_users_from_csv(self, file_path, dialog):
-    """Importa usuarios desde un archivo CSV"""
-    import csv
-    
-    try:
-        # Leer archivo CSV
-        users_to_import = []
-        with open(file_path, 'r', newline='', encoding='utf-8') as file:
-            reader = csv.reader(file)
-            # Saltar encabezado si existe
-            header = next(reader, None)
-            if header and header[0].lower() == 'usuario':
-                pass  # Saltar encabezado
-            else:
-                # Si no hay encabezado, volver al inicio del archivo
-                file.seek(0)
+    def import_users_from_csv(self, file_path, dialog):
+        """Importa usuarios desde un archivo CSV"""
+        import csv
+        
+        try:
+            # Leer archivo CSV
+            users_to_import = []
+            with open(file_path, 'r', newline='', encoding='utf-8') as file:
                 reader = csv.reader(file)
+                # Saltar encabezado si existe
+                header = next(reader, None)
+                if header and header[0].lower() == 'usuario':
+                    pass  # Saltar encabezado
+                else:
+                    # Si no hay encabezado, volver al inicio del archivo
+                    file.seek(0)
+                    reader = csv.reader(file)
+                
+                # Leer filas
+                for row in reader:
+                    if len(row) >= 4:
+                        users_to_import.append({
+                            'username': row[0].strip(),
+                            'password': row[1].strip(),
+                            'full_name': row[2].strip(),
+                            'role': row[3].strip().lower()
+                        })
             
-            # Leer filas
-            for row in reader:
-                if len(row) >= 4:
-                    users_to_import.append({
-                        'username': row[0].strip(),
-                        'password': row[1].strip(),
-                        'full_name': row[2].strip(),
-                        'role': row[3].strip().lower()
-                    })
+            # Validar datos
+            invalid_rows = []
+            for i, user in enumerate(users_to_import):
+                if not all([user['username'], user['password'], user['full_name']]):
+                    invalid_rows.append(i + 1)
+                elif user['role'] not in ['admin', 'employee']:
+                    invalid_rows.append(i + 1)
+            
+            if invalid_rows:
+                error_msg = f"Se encontraron {len(invalid_rows)} filas con formato inválido (filas: {', '.join(map(str, invalid_rows))})"
+                QMessageBox.warning(dialog, "Error", error_msg)
+                return
+            
+            # Importar usuarios
+            success_count = 0
+            error_count = 0
+            
+            for user in users_to_import:
+                result = self.admin_controller.add_user(
+                    user['username'], 
+                    user['password'], 
+                    user['full_name'], 
+                    user['role']
+                )
+                
+                if result:
+                    success_count += 1
+                else:
+                    error_count += 1
+            
+            # Mostrar resultado
+            if error_count == 0:
+                QMessageBox.information(
+                    dialog, 
+                    "Importación Exitosa", 
+                    f"Se importaron {success_count} usuarios correctamente."
+                )
+            else:
+                QMessageBox.warning(
+                    dialog, 
+                    "Importación Parcial", 
+                    f"Se importaron {success_count} usuarios correctamente.\n"
+                    f"No se pudieron importar {error_count} usuarios (posiblemente ya existen)."
+                )
+            
+            # Actualizar tabla de usuarios
+            self.load_users_table()
+            
+            # Actualizar filtros de usuarios
+            self.user_filter.clear()
+            self.report_user_filter.clear()
+            self.user_filter.addItem("Todos los usuarios", -1)
+            self.report_user_filter.addItem("Todos los usuarios", -1)
+            
+            users = self.admin_controller.get_all_users()
+            for user in users:
+                self.user_filter.addItem(user['full_name'], user['id'])
+                self.report_user_filter.addItem(user['full_name'], user['id'])
+            
+            dialog.accept()
+            
+        except Exception as e:
+            QMessageBox.critical(dialog, "Error", f"Error al importar usuarios: {str(e)}")
         
-        # Validar datos
-        invalid_rows = []
-        for i, user in enumerate(users_to_import):
-            if not all([user['username'], user['password'], user['full_name']]):
-                invalid_rows.append(i + 1)
-            elif user['role'] not in ['admin', 'employee']:
-                invalid_rows.append(i + 1)
-        
-        if invalid_rows:
-            error_msg = f"Se encontraron {len(invalid_rows)} filas con formato inválido (filas: {', '.join(map(str, invalid_rows))})"
-            QMessageBox.warning(dialog, "Error", error_msg)
+    def export_to_excel(self):
+        """Exporta el reporte actual a un archivo Excel"""
+        if not hasattr(self, 'current_report_data') or not self.current_report_data:
+            QMessageBox.warning(self, "Error", "No hay datos para exportar")
             return
         
-        # Importar usuarios
-        success_count = 0
-        error_count = 0
-        
-        for user in users_to_import:
-            result = self.admin_controller.add_user(
-                user['username'], 
-                user['password'], 
-                user['full_name'], 
-                user['role']
+        try:
+            from PyQt5.QtWidgets import QFileDialog
+            import openpyxl
+            from openpyxl.styles import Font, Alignment, PatternFill
+            
+            # Seleccionar ubicación para guardar
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "Guardar Reporte Excel", "", "Archivos Excel (*.xlsx)"
             )
             
-            if result:
-                success_count += 1
-            else:
-                error_count += 1
-        
-        # Mostrar resultado
-        if error_count == 0:
+            if not file_path:
+                return  # Usuario canceló
+            
+            # Agregar extensión si no la tiene
+            if not file_path.endswith('.xlsx'):
+                file_path += '.xlsx'
+            
+            # Crear libro y hoja
+            workbook = openpyxl.Workbook()
+            sheet = workbook.active
+            sheet.title = "Reporte de Tiempos"
+            
+            # Estilos
+            header_font = Font(bold=True, color="FFFFFF")
+            header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+            header_alignment = Alignment(horizontal="center", vertical="center")
+            
+            # Títulos
+            headers = [
+                "Usuario", "Fecha", "Hora de Inicio", "Hora de Fin", 
+                "Tiempo de Trabajo", "Tiempo de Descanso", "Tiempo de Almuerzo", 
+                "Tiempo en Baño", "Tiempo en Reuniones"
+            ]
+            
+            for col, header in enumerate(headers, 1):
+                cell = sheet.cell(row=1, column=col, value=header)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = header_alignment
+            
+            # Datos
+            for row, record in enumerate(self.current_report_data, 2):
+                # Usuario
+                sheet.cell(row=row, column=1, value=record['username'])
+                
+                # Fecha
+                sheet.cell(row=row, column=2, value=record['date'])
+                
+                # Hora de inicio
+                if record['login_time']:
+                    login_time = datetime.datetime.fromisoformat(record['login_time'])
+                    sheet.cell(row=row, column=3, value=login_time.strftime('%H:%M:%S'))
+                else:
+                    sheet.cell(row=row, column=3, value="--")
+                
+                # Hora de fin
+                if record['logout_time']:
+                    logout_time = datetime.datetime.fromisoformat(record['logout_time'])
+                    sheet.cell(row=row, column=4, value=logout_time.strftime('%H:%M:%S'))
+                else:
+                    sheet.cell(row=row, column=4, value="Activo")
+                
+                # Tiempos de actividades
+                sheet.cell(row=row, column=5, value=self.format_seconds(record['total_work_time']))
+                sheet.cell(row=row, column=6, value=self.format_seconds(record['total_break_time']))
+                sheet.cell(row=row, column=7, value=self.format_seconds(record['total_lunch_time']))
+                sheet.cell(row=row, column=8, value=self.format_seconds(record['total_bathroom_time']))
+                sheet.cell(row=row, column=9, value=self.format_seconds(record['total_meeting_time']))
+            
+            # Ajustar ancho de columnas
+            for column in sheet.columns:
+                max_length = 0
+                column_letter = openpyxl.utils.get_column_letter(column[0].column)
+                for cell in column:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                adjusted_width = max_length + 2
+                sheet.column_dimensions[column_letter].width = adjusted_width
+            
+            # Guardar archivo
+            workbook.save(file_path)
+            
             QMessageBox.information(
-                dialog, 
-                "Importación Exitosa", 
-                f"Se importaron {success_count} usuarios correctamente."
-            )
-        else:
-            QMessageBox.warning(
-                dialog, 
-                "Importación Parcial", 
-                f"Se importaron {success_count} usuarios correctamente.\n"
-                f"No se pudieron importar {error_count} usuarios (posiblemente ya existen)."
+                self, 
+                "Exportación Exitosa", 
+                f"El reporte ha sido exportado exitosamente a:\n{file_path}"
             )
         
-        # Actualizar tabla de usuarios
-        self.load_users_table()
-        
-        # Actualizar filtros de usuarios
-        self.user_filter.clear()
-        self.report_user_filter.clear()
-        self.user_filter.addItem("Todos los usuarios", -1)
-        self.report_user_filter.addItem("Todos los usuarios", -1)
-        
-        users = self.admin_controller.get_all_users()
-        for user in users:
-            self.user_filter.addItem(user['full_name'], user['id'])
-            self.report_user_filter.addItem(user['full_name'], user['id'])
-        
-        dialog.accept()
-        
-    except Exception as e:
-        QMessageBox.critical(dialog, "Error", f"Error al importar usuarios: {str(e)}")
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Error", 
+                f"Error al exportar a Excel: {str(e)}\n\n"
+                "Asegúrate de tener instalada la biblioteca openpyxl:"
+                "\npip install openpyxl"
+            )

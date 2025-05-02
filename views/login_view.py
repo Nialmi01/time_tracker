@@ -19,8 +19,8 @@ class LoginView(QMainWindow):
     def init_ui(self):
         """Inicializa la interfaz de usuario"""
         # Configuración de la ventana
-        self.setWindowTitle('Employee Time Tracker - Login')
-        self.setFixedSize(400, 500)
+        self.setWindowTitle('Time Tracker - Login')
+        self.setFixedSize(450, 500)
         
         # Widget central
         central_widget = QWidget()
@@ -38,7 +38,7 @@ class LoginView(QMainWindow):
         if not logo_pixmap.isNull():
             logo_label.setPixmap(logo_pixmap.scaledToWidth(200, Qt.SmoothTransformation))
         else:
-            logo_label.setText("Employee Time Tracker")
+            logo_label.setText("Time Tracker")
             logo_label.setFont(QFont("Arial", 18, QFont.Bold))
         
         logo_layout.addStretch()
@@ -82,7 +82,7 @@ class LoginView(QMainWindow):
         main_layout.addStretch()
         
         # Copyright
-        copyright_label = QLabel("© 2025 Employee Time Tracker")
+        copyright_label = QLabel("© 2025 Time Tracker")
         copyright_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(copyright_label)
     
